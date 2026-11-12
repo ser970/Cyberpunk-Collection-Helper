@@ -1030,12 +1030,34 @@ function openExport(target = 'deck') {
   };
   $('#download-export').onclick = () => download(`${isDeck ? safeName(active().name) : safeName(editing().name)}.txt`, text);
 }
+function tcgplayerMassEntryList(quantityById) {
+  return cards.filter(c => quantityById[c.id] > 0)
+    .sort((a, b) => (a.type === 'Legend' ? 0 : 1) - (b.type === 'Legend' ? 0 : 1) || a.displayName.localeCompare(b.displayName))
+    .map(c => {
+      const plain = value => String(value || '').normalize('NFD').replace(/\p{Diacritic}/gu, '');
+      const name = `${plain(c.name)}${c.subname ? ` - ${plain(c.subname)}` : ''}`;
+      const sameSet = c.printings.filter(p => p.set === c.set);
+      const rarityOptions = new Set(sameSet.map(p => p.rarity).filter(Boolean));
+      const numberRarity = sameSet.find(p => p.number === c.number)?.rarity || c.rarity;
+      const letterVariant = c.number.match(/\d+([a-z])$/i)?.[1];
+      const rarityLabels = { 'Iconic Legend': 'ILegend', 'Iconic Other': 'IO', 'Iconic Secret': 'ISecret' };
+      const variant = letterVariant ? ` (${letterVariant})` : rarityOptions.size > 1 ? ` (${rarityLabels[numberRarity] || numberRarity})` : '';
+      return `${quantityById[c.id]} ${name}${variant}`;
+    }).join('\n');
+}
 function showMissing() {
   const s = deckStats(active(), cards, deckPool());
   const missing = Object.fromEntries(s.missing.map(r => [r.card.id, r.missing]));
-  const text = exportList(missing, cards);
-  modal('Missing from selected collections', `<p>Extra copies needed to build <strong>${esc(active().name)}</strong>. Unowned cards can stay in a planned deck.</p><textarea rows="10" readonly aria-label="Missing card list">${esc(text || 'You own every card in this deck.')}</textarea>`, '<button class="button ghost" data-close>Close</button><button class="button yellow" id="download-missing">↓ Download missing list</button>');
-  $('#download-missing').onclick = () => download(`${safeName(active().name)}-missing.txt`, text);
+  const tcgplayerList = tcgplayerMassEntryList(missing);
+  const appList = exportList(missing, cards);
+  const tcgplayerLink = s.missing.length ? `<a class="button yellow" id="shop-missing-tcg" href="https://www.tcgplayer.com/massentry?productline=Cyberpunk%20TCG" target="_blank" rel="noopener noreferrer">Copy list &amp; open TCGplayer</a>` : '';
+  modal('Missing from selected collections', `<p>Extra copies needed to build <strong>${esc(active().name)}</strong>. This button copies the list and opens Cyberpunk TCG Mass Entry. Paste the list, then review the results before adding to your cart.</p><textarea id="tcgplayer-missing-list" rows="10" readonly aria-label="TCGplayer missing card list">${esc(tcgplayerList || 'You own every card in this deck.')}</textarea>`, `<button class="button ghost" data-close>Close</button><button class="button ghost" id="download-app-missing">Download app list</button><button class="button ghost" id="download-tcgplayer-missing">Download TCGplayer list</button>${tcgplayerLink}`);
+  $('#download-app-missing').onclick = () => download(`${safeName(active().name)}-missing.txt`, appList);
+  $('#download-tcgplayer-missing').onclick = () => download(`${safeName(active().name)}-tcgplayer-missing.txt`, tcgplayerList);
+  $('#shop-missing-tcg')?.addEventListener('click', async () => {
+    try { await navigator.clipboard.writeText(tcgplayerList); notify('List copied. Paste it into TCGplayer Mass Entry.'); }
+    catch { const field = $('#tcgplayer-missing-list'); field.focus(); field.select(); notify('List selected. Press Ctrl+C, then paste it into TCGplayer Mass Entry.'); }
+  });
 }
 function renameDeck(isNew = false) {
   if (isNew && state.decks.length >= 200) return notify('Maximum 200 saved decks. Export a backup before removing old decks.');
